@@ -313,6 +313,8 @@ class GPT2Attention(nn.Module):
         encoder_attention_mask: Optional[torch.FloatTensor] = None,
         use_cache: Optional[bool] = False,
         output_attentions: Optional[bool] = False,
+        generate_batch_sentences: Optional[bool] = False,
+        last_nonmasked_token_idx: Optional[torch.Tensor] = None,
     ) -> Tuple[Union[torch.Tensor, Tuple[torch.Tensor]], ...]:
         if encoder_hidden_states is not None:
             if not hasattr(self, "q_attn"):
@@ -333,8 +335,15 @@ class GPT2Attention(nn.Module):
 
         if layer_past is not None:
             past_key, past_value = layer_past
-            key = torch.cat((past_key, key), dim=-2)
-            value = torch.cat((past_value, value), dim=-2)
+            if generate_batch_sentences:
+                batch_indices = range(past_key.shape[0])
+                past_key[batch_indices, :, last_nonmasked_token_idx, :] = key.squeeze(dim=-2)
+                past_value[batch_indices, :, last_nonmasked_token_idx, :] = value.squeeze(dim=-2)
+                key = past_key
+                value = past_value
+            else:
+                key = torch.cat((past_key, key), dim=-2)
+                value = torch.cat((past_value, value), dim=-2)
 
         if use_cache is True:
             present = (key, value)
@@ -400,6 +409,8 @@ class GPT2Block(nn.Module):
         encoder_attention_mask: Optional[torch.FloatTensor] = None,
         use_cache: Optional[bool] = False,
         output_attentions: Optional[bool] = False,
+        generate_batch_sentences: Optional[bool] = False,
+        last_nonmasked_token_idx: Optional[torch.Tensor] = None,
     ) -> Union[Tuple[torch.Tensor], Optional[Tuple[torch.Tensor, Tuple[torch.FloatTensor, ...]]]]:
         residual = hidden_states
         hidden_states = self.ln_1(hidden_states)
@@ -410,6 +421,8 @@ class GPT2Block(nn.Module):
             head_mask=head_mask,
             use_cache=use_cache,
             output_attentions=output_attentions,
+            generate_batch_sentences = generate_batch_sentences,
+            last_nonmasked_token_idx = last_nonmasked_token_idx
         )
         attn_output = attn_outputs[0]  # output_attn: a, present, (attentions)
         outputs = attn_outputs[1:]
