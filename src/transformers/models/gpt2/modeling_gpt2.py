@@ -315,6 +315,8 @@ class GPT2Attention(nn.Module):
         output_attentions: Optional[bool] = False,
         generate_batch_sentences: Optional[bool] = False,
         last_nonmasked_token_idx: Optional[torch.Tensor] = None,
+        extract_feature: Optional[bool] = False,
+        input_ids_len: Optional[torch.Tensor] = None
     ) -> Tuple[Union[torch.Tensor, Tuple[torch.Tensor]], ...]:
         if encoder_hidden_states is not None:
             if not hasattr(self, "q_attn"):
@@ -341,6 +343,16 @@ class GPT2Attention(nn.Module):
                 past_value[batch_indices, :, last_nonmasked_token_idx, :] = value.squeeze(dim=-2)
                 key = past_key
                 value = past_value
+            if extract_feature:
+                batch_indices = range(past_key.shape[0])
+                for batch_idx in batch_indices:
+                    start_idx = last_nonmasked_token_idx[batch_idx]
+                    input_len = input_ids_len[batch_idx]
+                    past_key[batch_idx, :, range(start_idx, start_idx+input_len), :] = key[batch_idx, :, range(input_len), :]
+                    past_value[batch_idx, :, range(start_idx, start_idx+input_len), :] = value[batch_idx, :, range(input_len), :]
+                key = past_key
+                value = past_value
+                input_ids_len: Optional[torch.Tensor] = None
             else:
                 key = torch.cat((past_key, key), dim=-2)
                 value = torch.cat((past_value, value), dim=-2)
@@ -411,6 +423,8 @@ class GPT2Block(nn.Module):
         output_attentions: Optional[bool] = False,
         generate_batch_sentences: Optional[bool] = False,
         last_nonmasked_token_idx: Optional[torch.Tensor] = None,
+        extract_feature: Optional[bool] = False,
+        input_ids_len: Optional[torch.Tensor] = None
     ) -> Union[Tuple[torch.Tensor], Optional[Tuple[torch.Tensor, Tuple[torch.FloatTensor, ...]]]]:
         residual = hidden_states
         hidden_states = self.ln_1(hidden_states)
@@ -422,7 +436,9 @@ class GPT2Block(nn.Module):
             use_cache=use_cache,
             output_attentions=output_attentions,
             generate_batch_sentences = generate_batch_sentences,
-            last_nonmasked_token_idx = last_nonmasked_token_idx
+            last_nonmasked_token_idx = last_nonmasked_token_idx,
+            extract_feature = extract_feature,
+            input_ids_len = input_ids_len
         )
         attn_output = attn_outputs[0]  # output_attn: a, present, (attentions)
         outputs = attn_outputs[1:]
